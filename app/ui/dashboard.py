@@ -6,7 +6,7 @@ if str(ROOT) not in sys.path:
 import os
 import json
 from datetime import datetime, timedelta, timezone
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 
 import pandas as pd
 import numpy as np
@@ -15,12 +15,11 @@ import pydeck as pdk
 
 from app.db import fetch_df
 
-# --- Aetheris branding ---
+# --- Branding & Layout ---
 st.set_page_config(page_title="Aetheris", page_icon="🛡️", layout="wide")
 st.title("Aetheris")
 st.caption("Go/No-Go decisions from FAA & NOAA data — fast, explainable, map-first.")
 
-# Session state overlays
 if "route_overlays" not in st.session_state:
     st.session_state["route_overlays"] = {}
 
@@ -32,6 +31,7 @@ runway = col3.number_input("Runway Heading (deg)", value=170)
 
 now_utc = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
 default_end = now_utc + timedelta(hours=24)
+
 s_date = col1.date_input("Start date (UTC)", value=now_utc.date())
 s_time = col2.time_input("Start time (UTC)", value=now_utc.time())
 e_date = col1.date_input("End date (UTC)", value=default_end.date(), key="end_date")
@@ -55,7 +55,7 @@ radius_km = mcol1.slider("Map radius (km)", 10, 300, 80)
 show_heat = mcol2.checkbox("Show Risk Heatmap", value=True)
 show_tfr = mcol3.checkbox("Show No-Fly (TFR) Polygons", value=True)
 
-# ---------------- Helper Functions ----------------
+# ---------------- Helpers ----------------
 def parse_corridor(s: str) -> List[Tuple[float, float]]:
     pts = []
     for seg in s.split(";"):
@@ -110,45 +110,7 @@ def load_features_points(lat: float, lon: float, start_iso: str, end_iso: str, r
     df["risk_weight"] = df.apply(risk_row, axis=1)
     return df
 
-def make_map_layers(lat, lon, start_iso, end_iso, radius_km, show_heat, show_tfr, corridor_pts):
-    layers = []
-    if show_heat:
-        fdf = load_features_points(lat, lon, start_iso, end_iso, radius_km)
-        if not fdf.empty:
-            layers.append(
-                pdk.Layer(
-                    "HeatmapLayer",
-                    data=fdf.rename(columns={"lat": "latitude", "lon": "longitude"}),
-                    get_position='[longitude, latitude]',
-                    get_weight="risk_weight",
-                    radiusPixels=60,
-                    aggregation='"SUM"',
-                    opacity=0.7,
-                )
-            )
-    if corridor_pts:
-        path = [[lon, lat] for lat, lon in corridor_pts]
-        layers.append(
-            pdk.Layer(
-                "PathLayer",
-                data=pd.DataFrame({"path": [path]}),
-                get_path="path",
-                get_width=4,
-                get_color=[0, 120, 240, 220],
-            )
-        )
-    layers.append(
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=pd.DataFrame({"latitude": [lat], "longitude": [lon]}),
-            get_position='[longitude, latitude]',
-            get_radius=150,
-            get_fill_color=[0, 200, 80, 255],
-        )
-    )
-    return layers
-
-# ---------------- Local Decision & Route Evaluation ----------------
+# ---------------- Local Models ----------------
 def local_decide(lat, lon, start, end, runway):
     df = load_features_points(lat, lon, start.isoformat(), end.isoformat(), radius_km=80)
     if df.empty:
@@ -167,7 +129,7 @@ def local_route_evaluate(route_points, dep_time, ground_speed_kts, buffer_km, ho
     for i in range(len(route_points)-1):
         a = route_points[i]
         b = route_points[i+1]
-        dist_km = np.linalg.norm(np.array(a)-np.array(b))*111  # rough km
+        dist_km = np.linalg.norm(np.array(a)-np.array(b))*111
         total_km += dist_km
         start_time = dep_time + timedelta(hours=total_km / ground_speed_kts)
         end_time = start_time + timedelta(hours=dist_km / ground_speed_kts)
@@ -181,7 +143,7 @@ def local_route_evaluate(route_points, dep_time, ground_speed_kts, buffer_km, ho
             "b": b,
             "center": [(a[0]+b[0])/2, (a[1]+b[1])/2],
             "label": label,
-            "hazards": ["low vis"] if mean_risk>0.8 else [],
+            "hazards": ["low vis"] if mean_risk > 0.8 else [],
             "risk": mean_risk,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat()
@@ -194,8 +156,9 @@ def local_route_evaluate(route_points, dep_time, ground_speed_kts, buffer_km, ho
         "segments": segs
     }
 
-# ---------------- UI: Decision ----------------
+# ---------------- Decision UI ----------------
 left, right = st.columns([1, 1])
+
 with left:
     if st.button("Decide"):
         try:
@@ -210,17 +173,71 @@ with left:
 
 with right:
     corridor_pts = parse_corridor(corridor_text)
-    layers = make_map_layers(lat, lon, start.isoformat(), end.isoformat(),
-                             radius_km, show_heat, show_tfr, corridor_pts)
-    for i in sorted(st.session_state.get("route_overlays", {}).keys()):
-        for lyr in st.session_state["route_overlays"][i]:
-            layers.append(lyr)
-    view_state = pdk.ViewState(latitude=float(lat), longitude=float(lon), zoom=8)
-    st.pydeck_chart(pdk.Deck(map_style="mapbox://styles/mapbox/light-v9",
-                             initial_view_state=view_state, layers=layers),
-                    use_container_width=True)
 
-# ---------------- Route Evaluation ----------------
+    # Always include base marker
+    base_layers = [
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=pd.DataFrame({"latitude": [lat], "longitude": [lon]}),
+            get_position='[longitude, latitude]',
+            get_radius=150,
+            get_fill_color=[0, 200, 80, 255],
+        )
+    ]
+
+    # Corridor visualization
+    if corridor_pts:
+        path = [[lon, lat] for lat, lon in corridor_pts]
+        base_layers.append(
+            pdk.Layer(
+                "PathLayer",
+                data=pd.DataFrame({"path": [path]}),
+                get_path="path",
+                get_width=4,
+                widthMinPixels=4,
+                get_color=[0, 120, 240, 220],
+                pickable=True,
+            )
+        )
+
+    # Optional heatmap layer
+    if show_heat:
+        fdf = load_features_points(lat, lon, start.isoformat(), end.isoformat(), radius_km)
+        if not fdf.empty:
+            base_layers.append(
+                pdk.Layer(
+                    "HeatmapLayer",
+                    data=fdf.rename(columns={"lat": "latitude", "lon": "longitude"}),
+                    get_position='[longitude, latitude]',
+                    get_weight="risk_weight",
+                    radiusPixels=60,
+                    aggregation='"SUM"',
+                    opacity=0.7,
+                )
+            )
+
+    # Add stored overlays (route segments)
+    overlays = []
+    if "route_overlays" in st.session_state:
+        for route_layers in st.session_state["route_overlays"].values():
+            overlays.extend(route_layers)
+
+    all_layers = base_layers + overlays
+    if not all_layers:
+        all_layers = base_layers
+
+    view_state = pdk.ViewState(latitude=float(lat), longitude=float(lon), zoom=8)
+    st.pydeck_chart(
+        pdk.Deck(
+            map_style="mapbox://styles/mapbox/light-v9",
+            initial_view_state=view_state,
+            layers=all_layers,
+            tooltip={"text": "{label} {tfr_type}"},
+        ),
+        use_container_width=True,
+    )
+
+# ---------------- Routes UI ----------------
 st.markdown("### Routes")
 st.caption("Enter routes: each line is `lat,lon; lat,lon; ...`")
 routes_text = st.text_area("Route options", height=100, value="32.7767,-96.7970; 33.0,-97.0; 33.3,-97.2")
@@ -248,9 +265,9 @@ dep_offset = st.slider("Departure offset (hours)", -2, 24, 0)
 dep_time = start + timedelta(hours=dep_offset)
 gs = st.slider("Ground speed (kts)", 40, 180, 80)
 buf_km = st.slider("Buffer (km)", 1, 10, 3)
-
 cols = st.columns(2)
 
+# --- Evaluate Selected Route ---
 if cols[0].button("Evaluate Selected", disabled=not ROUTES):
     try:
         route = ROUTES[opt_idx]
@@ -258,19 +275,71 @@ if cols[0].button("Evaluate Selected", disabled=not ROUTES):
         st.subheader(f"Route {opt_idx+1} Summary")
         st.write(out["summary"])
         segs = out["segments"]
+
         if segs:
-            st.dataframe(pd.DataFrame(segs)[["idx_from","idx_to","label","risk","start_time","end_time"]])
-            st.session_state["route_overlays"] = {}
-            layers = []
+            st.dataframe(pd.DataFrame(segs)[["idx_from", "idx_to", "label", "risk", "start_time", "end_time"]])
+            path_rows = []
             for s in segs:
-                color = {"GREEN":[0,180,80,220],"AMBER":[255,170,0,220],"RED":[220,40,40,240]}[s["label"]]
-                layers.append(pdk.Layer("PathLayer",
-                                        data=pd.DataFrame({"path":[[[s["a"][1],s["a"][0]],[s["b"][1],s["b"][0]]]]}),
-                                        get_path="path", get_color=color, get_width=6))
-            st.session_state["route_overlays"][opt_idx] = layers
+                color = {"GREEN": [0, 180, 80, 220],
+                         "AMBER": [255, 170, 0, 220],
+                         "RED": [220, 40, 40, 240]}[s["label"]]
+                path = [[s["a"][1], s["a"][0]], [s["b"][1], s["b"][0]]]
+                path_rows.append({
+                    "path": path,
+                    "color": color,
+                    "risk": round(float(s["risk"]), 2),
+                    "label": s["label"],
+                    "hazards": ", ".join(s["hazards"]) if s["hazards"] else "None",
+                    "start_time": s["start_time"][11:16],
+                    "end_time": s["end_time"][11:16]
+                })
+
+            path_df = pd.DataFrame(path_rows)
+            seg_layer = pdk.Layer(
+                "PathLayer",
+                data=path_df,
+                get_path="path",
+                get_color="color",
+                get_width=6,
+                pickable=True,
+            )
+
+            tooltip = {
+                "html": "<b>{label}</b><br/>Risk: {risk}<br/>Hazards: {hazards}<br/>Time: {start_time}–{end_time}",
+                "style": {"backgroundColor": "white", "color": "black"},
+            }
+
+            lat_c = np.mean([p[0] for p in route])
+            lon_c = np.mean([p[1] for p in route])
+            label_layer = pdk.Layer(
+                "TextLayer",
+                data=pd.DataFrame([{"lon": lon_c, "lat": lat_c, "text": f"Route {opt_idx+1}"}]),
+                get_position='[lon, lat]',
+                get_text='text',
+                get_size=16,
+                get_color=[0, 0, 0, 255],
+                background=True,
+                billboard=True,
+            )
+
+            st.session_state["route_overlays"] = {opt_idx: [seg_layer, label_layer]}
+
+            all_layers = [lyr for group in st.session_state["route_overlays"].values() for lyr in group]
+            view_state = pdk.ViewState(latitude=float(lat), longitude=float(lon), zoom=8)
+            st.pydeck_chart(
+                pdk.Deck(
+                    map_style="mapbox://styles/mapbox/light-v9",
+                    initial_view_state=view_state,
+                    layers=all_layers,
+                    tooltip=tooltip,
+                ),
+                use_container_width=True,
+            )
+
     except Exception as ex:
         st.error(f"Evaluation failed: {ex}")
 
+# --- Evaluate ALL Routes ---
 if cols[1].button("Evaluate All Routes", disabled=not ROUTES):
     try:
         st.session_state["route_overlays"] = {}
@@ -278,13 +347,60 @@ if cols[1].button("Evaluate All Routes", disabled=not ROUTES):
             out = local_route_evaluate(route, dep_time, gs, buf_km, 20)
             segs = out["segments"]
             if segs:
-                layers = []
+                path_rows = []
                 for s in segs:
-                    color = {"GREEN":[0,180,80,220],"AMBER":[255,170,0,220],"RED":[220,40,40,240]}[s["label"]]
-                    layers.append(pdk.Layer("PathLayer",
-                                            data=pd.DataFrame({"path":[[[s["a"][1],s["a"][0]],[s["b"][1],s["b"][0]]]]}),
-                                            get_path="path", get_color=color, get_width=6))
-                st.session_state["route_overlays"][i] = layers
-        st.success("All routes evaluated.")
+                    color = {"GREEN": [0, 180, 80, 220],
+                             "AMBER": [255, 170, 0, 220],
+                             "RED": [220, 40, 40, 240]}[s["label"]]
+                    path = [[s["a"][1], s["a"][0]], [s["b"][1], s["b"][0]]]
+                    path_rows.append({
+                        "path": path,
+                        "color": color,
+                        "risk": round(float(s["risk"]), 2),
+                        "label": s["label"],
+                        "hazards": ", ".join(s["hazards"]) if s["hazards"] else "None",
+                        "start_time": s["start_time"][11:16],
+                        "end_time": s["end_time"][11:16]
+                    })
+                path_df = pd.DataFrame(path_rows)
+                seg_layer = pdk.Layer(
+                    "PathLayer",
+                    data=path_df,
+                    get_path="path",
+                    get_color="color",
+                    get_width=6,
+                    pickable=True,
+                )
+                lat_c = np.mean([p[0] for p in route])
+                lon_c = np.mean([p[1] for p in route])
+                label_layer = pdk.Layer(
+                    "TextLayer",
+                    data=pd.DataFrame([{"lon": lon_c, "lat": lat_c, "text": f"Route {i+1}"}]),
+                    get_position='[lon, lat]',
+                    get_text='text',
+                    get_size=16,
+                    get_color=[0, 0, 0, 255],
+                    background=True,
+                    billboard=True,
+                )
+                st.session_state["route_overlays"][i] = [seg_layer, label_layer]
+
+        all_layers = [lyr for group in st.session_state["route_overlays"].values() for lyr in group]
+        view_state = pdk.ViewState(latitude=float(lat), longitude=float(lon), zoom=8)
+        tooltip = {
+            "html": "<b>{label}</b><br/>Risk: {risk}<br/>Hazards: {hazards}<br/>Time: {start_time}–{end_time}",
+            "style": {"backgroundColor": "white", "color": "black"},
+        }
+        st.pydeck_chart(
+            pdk.Deck(
+                map_style="mapbox://styles/mapbox/light-v9",
+                initial_view_state=view_state,
+                layers=all_layers,
+                tooltip=tooltip,
+            ),
+            use_container_width=True,
+        )
+
+        st.success("All routes evaluated and visualized on map.")
     except Exception as ex:
         st.error(f"Evaluation failed: {ex}")
