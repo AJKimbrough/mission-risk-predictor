@@ -1,11 +1,10 @@
 import sys, pathlib
-ROOT = pathlib.Path(__file__).resolve().parents[2]  # repo root (…/mission_go_no_go)
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import os
 import json
-import math
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple, Optional, Dict, Any
 
@@ -14,7 +13,6 @@ import numpy as np
 import streamlit as st
 import pydeck as pdk
 
-# --- Reuse our local DB helper to read TFRs/features directly ---
 from app.db import fetch_df
 
 # --- Aetheris branding ---
@@ -22,7 +20,7 @@ st.set_page_config(page_title="Aetheris", page_icon="🛡️", layout="wide")
 st.title("Aetheris")
 st.caption("Go/No-Go decisions from FAA & NOAA data — fast, explainable, map-first.")
 
-# Keep route overlays across reruns: {route_index: [pydeck.Layer, ...]}
+# Session state overlays
 if "route_overlays" not in st.session_state:
     st.session_state["route_overlays"] = {}
 
@@ -34,7 +32,6 @@ runway = col3.number_input("Runway Heading (deg)", value=170)
 
 now_utc = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
 default_end = now_utc + timedelta(hours=24)
-
 s_date = col1.date_input("Start date (UTC)", value=now_utc.date())
 s_time = col2.time_input("Start time (UTC)", value=now_utc.time())
 e_date = col1.date_input("End date (UTC)", value=default_end.date(), key="end_date")
@@ -51,17 +48,16 @@ st.markdown("#### Corridor (optional)")
 st.caption("Enter waypoints as `lat,lon; lat,lon; ...` to render a corridor polyline.")
 corridor_text = st.text_input("Waypoints", value="")
 
+# Map options
 st.markdown("#### Map Options")
 mcol1, mcol2, mcol3 = st.columns(3)
 radius_km = mcol1.slider("Map radius (km)", 10, 300, 80)
 show_heat = mcol2.checkbox("Show Risk Heatmap", value=True)
 show_tfr = mcol3.checkbox("Show No-Fly (TFR) Polygons", value=True)
 
-# ---------------- Helpers ----------------
+# ---------------- Helper Functions ----------------
 def parse_corridor(s: str) -> List[Tuple[float, float]]:
     pts = []
-    if not s.strip():
-        return pts
     for seg in s.split(";"):
         seg = seg.strip()
         if not seg:
@@ -74,38 +70,7 @@ def parse_corridor(s: str) -> List[Tuple[float, float]]:
     return pts
 
 def km_to_deg(km: float) -> float:
-    return km / 111.0  # rough conversion
-
-def load_tfr_geojson(lat: float, lon: float, start_iso: str, end_iso: str, radius_km: float) -> List[dict]:
-    sql = """
-    SELECT geometry_geojson, name, tfr_type, eff_start, eff_end
-    FROM tfr
-    WHERE eff_start <= :end AND eff_end >= :start
-      AND geometry_geojson IS NOT NULL
-    """
-    df = fetch_df(sql, start=start_iso, end=end_iso)
-    features = []
-    for _, r in df.iterrows():
-        try:
-            gj = json.loads(r["geometry_geojson"])
-        except Exception:
-            continue
-        props = {
-            "name": r.get("name"),
-            "tfr_type": r.get("tfr_type"),
-            "eff_start": r.get("eff_start"),
-            "eff_end": r.get("eff_end"),
-        }
-        if gj.get("type") == "FeatureCollection":
-            for f in gj.get("features", []):
-                f.setdefault("properties", {}).update(props)
-                features.append(f)
-        elif gj.get("type") == "Feature":
-            gj.setdefault("properties", {}).update(props)
-            features.append(gj)
-        else:
-            features.append({"type": "Feature", "geometry": gj, "properties": props})
-    return features
+    return km / 111.0
 
 def load_features_points(lat: float, lon: float, start_iso: str, end_iso: str, radius_km: float) -> pd.DataFrame:
     sql = """
@@ -120,6 +85,7 @@ def load_features_points(lat: float, lon: float, start_iso: str, end_iso: str, r
     deg = km_to_deg(radius_km)
     df = df[(df["lat"].astype(float).between(lat-deg, lat+deg)) &
             (df["lon"].astype(float).between(lon-deg, lon+deg))].copy()
+
     if df.empty:
         return df
 
@@ -144,12 +110,10 @@ def load_features_points(lat: float, lon: float, start_iso: str, end_iso: str, r
     df["risk_weight"] = df.apply(risk_row, axis=1)
     return df
 
-def make_map_layers(center_lat: float, center_lon: float, start_iso: str, end_iso: str,
-                    radius_km: float, show_heat: bool, show_tfr: bool,
-                    corridor_pts: List[Tuple[float, float]]):
+def make_map_layers(lat, lon, start_iso, end_iso, radius_km, show_heat, show_tfr, corridor_pts):
     layers = []
     if show_heat:
-        fdf = load_features_points(center_lat, center_lon, start_iso, end_iso, radius_km)
+        fdf = load_features_points(lat, lon, start_iso, end_iso, radius_km)
         if not fdf.empty:
             layers.append(
                 pdk.Layer(
@@ -162,42 +126,6 @@ def make_map_layers(center_lat: float, center_lon: float, start_iso: str, end_is
                     opacity=0.7,
                 )
             )
-    if show_tfr:
-        feats = load_tfr_geojson(center_lat, center_lon, start_iso, end_iso, radius_km)
-        rows = []
-        def poly_coords(geom) -> Optional[List[List[float]]]:
-            t = geom.get("type")
-            if t == "Polygon":
-                return geom.get("coordinates", [])[0]
-            if t == "MultiPolygon":
-                polys = geom.get("coordinates", [])
-                return polys[0][0] if polys and polys[0] else None
-            return None
-        for f in feats:
-            geom = f.get("geometry", {})
-            coords = poly_coords(geom)
-            if not coords:
-                continue
-            rows.append({
-                "polygon": coords,
-                "name": f.get("properties", {}).get("name", "TFR"),
-                "tfr_type": f.get("properties", {}).get("tfr_type", "TFR"),
-            })
-        if rows:
-            layers.append(
-                pdk.Layer(
-                    "PolygonLayer",
-                    data=rows,
-                    get_polygon="polygon",
-                    stroked=True,
-                    filled=True,
-                    wireframe=False,
-                    get_line_width=2,
-                    lineWidthMinPixels=2,
-                    get_line_color=[255, 0, 0, 255],
-                    get_fill_color=[255, 0, 0, 80],
-                )
-            )
     if corridor_pts:
         path = [[lon, lat] for lat, lon in corridor_pts]
         layers.append(
@@ -206,59 +134,80 @@ def make_map_layers(center_lat: float, center_lon: float, start_iso: str, end_is
                 data=pd.DataFrame({"path": [path]}),
                 get_path="path",
                 get_width=4,
-                widthMinPixels=4,
                 get_color=[0, 120, 240, 220],
             )
         )
     layers.append(
         pdk.Layer(
             "ScatterplotLayer",
-            data=pd.DataFrame({"latitude": [center_lat], "longitude": [center_lon]}),
+            data=pd.DataFrame({"latitude": [lat], "longitude": [lon]}),
             get_position='[longitude, latitude]',
             get_radius=150,
-            radiusMinPixels=4,
-            radiusMaxPixels=10,
             get_fill_color=[0, 200, 80, 255],
         )
     )
     return layers
 
-# --- Local Decision Logic (replaces API call) ---
-def local_decide(lat: float, lon: float, start: datetime, end: datetime, runway: int) -> Dict[str, Any]:
+# ---------------- Local Decision & Route Evaluation ----------------
+def local_decide(lat, lon, start, end, runway):
     df = load_features_points(lat, lon, start.isoformat(), end.isoformat(), radius_km=80)
     if df.empty:
         return {"label": "UNKNOWN", "hourly": [], "ml_score": None}
     mean_risk = df["risk_weight"].mean()
-    label = "GREEN"
-    if mean_risk > 0.9:
-        label = "RED"
-    elif mean_risk > 0.6:
-        label = "AMBER"
+    label = "GREEN" if mean_risk < 0.6 else "AMBER" if mean_risk < 0.9 else "RED"
     return {
         "label": label,
         "ml_score": float(mean_risk),
         "hourly": df[["valid_time", "risk_weight", "wind_kts", "gust_kts", "vis_sm"]].to_dict(orient="records")
     }
 
-# ---------------- Decide + Map ----------------
+def local_route_evaluate(route_points, dep_time, ground_speed_kts, buffer_km, horizon_pad_min):
+    segs = []
+    total_km = 0.0
+    for i in range(len(route_points)-1):
+        a = route_points[i]
+        b = route_points[i+1]
+        dist_km = np.linalg.norm(np.array(a)-np.array(b))*111  # rough km
+        total_km += dist_km
+        start_time = dep_time + timedelta(hours=total_km / ground_speed_kts)
+        end_time = start_time + timedelta(hours=dist_km / ground_speed_kts)
+        df = load_features_points(a[0], a[1], start_time.isoformat(), end_time.isoformat(), radius_km=buffer_km)
+        mean_risk = df["risk_weight"].mean() if not df.empty else 0.0
+        label = "GREEN" if mean_risk < 0.6 else "AMBER" if mean_risk < 0.9 else "RED"
+        segs.append({
+            "idx_from": i,
+            "idx_to": i+1,
+            "a": a,
+            "b": b,
+            "center": [(a[0]+b[0])/2, (a[1]+b[1])/2],
+            "label": label,
+            "hazards": ["low vis"] if mean_risk>0.8 else [],
+            "risk": mean_risk,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat()
+        })
+    red_km = sum(np.linalg.norm(np.array(s["a"])-np.array(s["b"]))*111 for s in segs if s["label"]=="RED")
+    amber_km = sum(np.linalg.norm(np.array(s["a"])-np.array(s["b"]))*111 for s in segs if s["label"]=="AMBER")
+    green_km = total_km - red_km - amber_km
+    return {
+        "summary": {"total_km": total_km, "red_km": red_km, "amber_km": amber_km, "green_km": green_km},
+        "segments": segs
+    }
+
+# ---------------- UI: Decision ----------------
 left, right = st.columns([1, 1])
 with left:
     if st.button("Decide"):
         try:
             data = local_decide(lat, lon, start, end, runway)
             st.subheader(f"Decision: **{data.get('label','?')}**")
-            ml = data.get("ml_score")
-            if ml is not None:
-                st.metric(label="ML risk (No-Go prob)", value=f"{ml:.2f}")
-            hourly = data.get("hourly", [])
-            if hourly:
-                st.dataframe(pd.DataFrame(hourly))
-            with st.expander("Raw response"):
-                st.json(data)
+            if data.get("ml_score") is not None:
+                st.metric(label="ML risk (No-Go prob)", value=f"{data['ml_score']:.2f}")
+            if data.get("hourly"):
+                st.dataframe(pd.DataFrame(data["hourly"]))
         except Exception as ex:
             st.exception(ex)
 
-# --- Map rendering (unchanged) ---
 with right:
     corridor_pts = parse_corridor(corridor_text)
     layers = make_map_layers(lat, lon, start.isoformat(), end.isoformat(),
@@ -267,7 +216,75 @@ with right:
         for lyr in st.session_state["route_overlays"][i]:
             layers.append(lyr)
     view_state = pdk.ViewState(latitude=float(lat), longitude=float(lon), zoom=8)
-    deck = pdk.Deck(map_style="mapbox://styles/mapbox/light-v9",
-                    initial_view_state=view_state, layers=layers,
-                    tooltip={"text": "{name} {tfr_type}"})
-    st.pydeck_chart(deck, use_container_width=True)
+    st.pydeck_chart(pdk.Deck(map_style="mapbox://styles/mapbox/light-v9",
+                             initial_view_state=view_state, layers=layers),
+                    use_container_width=True)
+
+# ---------------- Route Evaluation ----------------
+st.markdown("### Routes")
+st.caption("Enter routes: each line is `lat,lon; lat,lon; ...`")
+routes_text = st.text_area("Route options", height=100, value="32.7767,-96.7970; 33.0,-97.0; 33.3,-97.2")
+
+def parse_route(line):
+    pts = []
+    for seg in line.split(";"):
+        seg = seg.strip()
+        if not seg:
+            continue
+        try:
+            a,b = seg.split(",")
+            pts.append([float(a.strip()), float(b.strip())])
+        except Exception:
+            continue
+    return pts
+
+route_lines = [ln.strip() for ln in routes_text.splitlines() if ln.strip()]
+ROUTES = [r for r in (parse_route(ln) for ln in route_lines) if len(r) >= 2]
+
+opt_idx = st.selectbox("Choose route", options=list(range(len(ROUTES))) if ROUTES else [0],
+                       format_func=lambda i: f"Option {i+1}", disabled=not ROUTES)
+
+dep_offset = st.slider("Departure offset (hours)", -2, 24, 0)
+dep_time = start + timedelta(hours=dep_offset)
+gs = st.slider("Ground speed (kts)", 40, 180, 80)
+buf_km = st.slider("Buffer (km)", 1, 10, 3)
+
+cols = st.columns(2)
+
+if cols[0].button("Evaluate Selected", disabled=not ROUTES):
+    try:
+        route = ROUTES[opt_idx]
+        out = local_route_evaluate(route, dep_time, gs, buf_km, 20)
+        st.subheader(f"Route {opt_idx+1} Summary")
+        st.write(out["summary"])
+        segs = out["segments"]
+        if segs:
+            st.dataframe(pd.DataFrame(segs)[["idx_from","idx_to","label","risk","start_time","end_time"]])
+            st.session_state["route_overlays"] = {}
+            layers = []
+            for s in segs:
+                color = {"GREEN":[0,180,80,220],"AMBER":[255,170,0,220],"RED":[220,40,40,240]}[s["label"]]
+                layers.append(pdk.Layer("PathLayer",
+                                        data=pd.DataFrame({"path":[[[s["a"][1],s["a"][0]],[s["b"][1],s["b"][0]]]]}),
+                                        get_path="path", get_color=color, get_width=6))
+            st.session_state["route_overlays"][opt_idx] = layers
+    except Exception as ex:
+        st.error(f"Evaluation failed: {ex}")
+
+if cols[1].button("Evaluate All Routes", disabled=not ROUTES):
+    try:
+        st.session_state["route_overlays"] = {}
+        for i, route in enumerate(ROUTES):
+            out = local_route_evaluate(route, dep_time, gs, buf_km, 20)
+            segs = out["segments"]
+            if segs:
+                layers = []
+                for s in segs:
+                    color = {"GREEN":[0,180,80,220],"AMBER":[255,170,0,220],"RED":[220,40,40,240]}[s["label"]]
+                    layers.append(pdk.Layer("PathLayer",
+                                            data=pd.DataFrame({"path":[[[s["a"][1],s["a"][0]],[s["b"][1],s["b"][0]]]]}),
+                                            get_path="path", get_color=color, get_width=6))
+                st.session_state["route_overlays"][i] = layers
+        st.success("All routes evaluated.")
+    except Exception as ex:
+        st.error(f"Evaluation failed: {ex}")
