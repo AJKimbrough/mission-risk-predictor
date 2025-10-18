@@ -2,7 +2,6 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-# Ensure directory exists for SQLite
 os.makedirs("data", exist_ok=True)
 
 DB_URL = os.getenv("DB_URL", "sqlite:///data/gonogo.sqlite")

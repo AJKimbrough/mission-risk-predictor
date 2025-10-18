@@ -17,5 +17,5 @@ FROM base x
 LEFT JOIN base y
   ON y.lat = x.lat
  AND y.lon = x.lon
- AND y.valid_time = datetime(x.valid_time, '+3 hours')  -- << horizon
+ AND y.valid_time = datetime(x.valid_time, '+3 hours')  
 ORDER BY x.valid_time;

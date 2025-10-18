@@ -17,16 +17,16 @@ class RouteEvalRequest(BaseModel):
     departure_time: datetime
     ground_speed_kts: float = 80.0
     buffer_km: float = 3.0
-    horizon_pad_min: int = 20  # +/- minutes around sample time when querying features
+    horizon_pad_min: int = 20  
 
 class SegmentResult(BaseModel):
     idx_from: int
     idx_to: int
     start_time: str
     end_time: str
-    center: List[float]       # [lat, lon]
-    a: List[float]            # [lat, lon]  <-- NEW
-    b: List[float]            # [lat, lon]  <-- NEW
+    center: List[float]       
+    a: List[float]            
+    b: List[float]            
     risk: float
     label: str
     hazards: List[str]
@@ -71,7 +71,7 @@ def _load_active_tfrs(t_iso: str):
     for gjson,name,typ in rows:
         try:
             gj = json.loads(gjson)
-            # normalize: either Feature or FeatureCollection
+            #normalize
             if gj.get("type")=="Feature":
                 geoms.append((shape(gj["geometry"]), name, typ))
             elif gj.get("type")=="FeatureCollection":
@@ -115,7 +115,7 @@ def route_evaluate(req: RouteEvalRequest):
     if not path or len(path)<2:
         return {"summary":{"error":"need at least 2 points"}, "segments":[]}
     path_d = _densify(path, max_step_km=max(req.buffer_km*1.5, 3.0))
-    # time along path
+    #time along path
     times=[]
     t0 = req.departure_time if req.departure_time.tzinfo else req.departure_time.replace(tzinfo=timezone.utc)
     total=0.0
@@ -126,8 +126,7 @@ def route_evaluate(req: RouteEvalRequest):
         total += hours
         times.append((t0 + timedelta(hours=total)).isoformat())
 
-    # Active TFR shapes at each sample time (approx: use end time)
-    # (Cheaper: use the mid-route time to fetch once; better: check per segment)
+    #Active TFR shapes at sample time 
     segs=[]
     red_tot=0.0; amber_tot=0.0; dist_tot=0.0
     for i in range(1,len(path_d)):
@@ -137,12 +136,11 @@ def route_evaluate(req: RouteEvalRequest):
         midt = ta + (tb-ta)/2
         dkm = _haversine_km(a,b)
         dist_tot += dkm
-        # features near midpoint
+        #Features near midpoint
         fdf = _query_features_timebox((a[0]+b[0])/2, (a[1]+b[1])/2, midt, req.horizon_pad_min, req.buffer_km)
-        # aggregate hazards (take worst in window)
+        #Aggregate hazards
         label=0; hazards=[]; risk=0.0
         if not fdf.empty:
-            # mark if any row violates
             labs = fdf.apply(_rule_label, axis=1).tolist()
             any1 = any(l for l,_ in labs)
             all_reasons=[]
@@ -150,7 +148,6 @@ def route_evaluate(req: RouteEvalRequest):
                 if l: all_reasons.extend(rs)
             label = 1 if any1 else 0
             hazards = sorted(set(all_reasons))
-            # simple risk score
             def rrow(r):
                 s=0.0
                 if pd.notna(r.get("pop_pct")): s += min(float(r["pop_pct"])/100.0,1.0)*0.2
@@ -162,11 +159,10 @@ def route_evaluate(req: RouteEvalRequest):
                 if int(r.get("tfr_active_flag") or 0)==1: s+=0.4
                 return s
             risk = float(min(fdf.apply(rrow,axis=1).max(), 2.0))
-        # TFR polygon check (spatial)
+        #TFR polygon check
         tfr_geoms = _load_active_tfrs(midt.isoformat())
         if tfr_geoms:
             ptA, ptB = Point(a[1],a[0]), Point(b[1],b[0])
-            # cheap check: midpoint + endpoints
             for geom,name,typ in tfr_geoms:
                 if geom.intersects(ptA) or geom.intersects(ptB) or geom.intersects(Point((a[1]+b[1])/2,(a[0]+b[0])/2)):
                     label=1
@@ -181,8 +177,8 @@ def route_evaluate(req: RouteEvalRequest):
             idx_from=i-1, idx_to=i,
             start_time=times[i-1], end_time=times[i],
             center=[ (a[0]+b[0])/2, (a[1]+b[1])/2 ],
-            a=a,                         # <-- NEW
-            b=b,                         # <-- NEW
+            a=a,                         
+            b=b,                         
             risk=risk, label=color_label, hazards=hazards
         ))
 

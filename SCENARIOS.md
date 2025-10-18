@@ -1,5 +1,4 @@
 # Mission Go/No-Go Predictor — Scenario Library
-
 This document defines baseline scenarios used to validate the predictor.  
 Each scenario specifies **inputs, expected conditions, expected outcome, rationale, and acceptance criteria**.  
 These scenarios should be logged and tracked as GitHub Issues, but are kept here for reference.

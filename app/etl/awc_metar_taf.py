@@ -11,7 +11,7 @@ S.headers.update({
     "Referer": "https://aviationweather.gov/",
 })
 
-# Parse lowest BKN/OVC from the raw METAR string (e.g., "BKN020 OVC080")
+#Parse lowest BKN/OVC from METAR (i.e., "BKN020 OVC080")
 _CLOUD_RE = re.compile(r"\b(BKN|OVC)(\d{3})\b")
 
 def _parse_ceiling_ft_from_raw(raw: str):
@@ -34,7 +34,7 @@ def _parse_visib_to_sm(val):
             return float(val)
         except Exception:
             return None
-    # string cases like "10+"
+    
     s = str(val).strip()
     if not s:
         return None
@@ -56,7 +56,6 @@ def _awc_metar_json(ids, hours=6):
     return r.json() or []
 
 def upsert_from_metars(lat, lon, km=50):
-    # Prefer explicit station list via env; else use a solid DFW set
     ids_env = os.getenv("SKYSAFE_METAR_IDS")
     if ids_env:
         ids = [s.strip() for s in ids_env.split(",") if s.strip()]
@@ -67,14 +66,14 @@ def upsert_from_metars(lat, lon, km=50):
     data = _awc_metar_json(ids, hours=6)
     for m in data:
         try:
-            # lat/lon
+            #lat/lon
             la = float(m.get("lat"))
             lo = float(m.get("lon"))
-            # time
-            ts = m.get("reportTime") or m.get("time")  # reportTime is ISO, time may appear on some dumps
-            # visibility
+            #Time
+            ts = m.get("reportTime") or m.get("time")  
+            #Visibility
             vis_sm = _parse_visib_to_sm(m.get("visib"))
-            # ceiling via raw METAR decode (lowest BKN/OVC layer)
+            #Ceiling via METAR decode (lowest BKN/OVC layer)
             ceiling_ft = _parse_ceiling_ft_from_raw(m.get("rawOb"))
             rows.append({"lat": la, "lon": lo, "valid_time": ts, "vis_sm": vis_sm, "ceiling_ft": ceiling_ft})
         except Exception:

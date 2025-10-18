@@ -3,19 +3,19 @@ from shapely.geometry import shape, Point
 from sqlalchemy import text
 from app.db import engine
 
-URL = os.getenv("FAA_TFR_JSON", "https://tfr.faa.gov/tfr2/list.json")  # the list link on tfr.faa.gov
+URL = os.getenv("FAA_TFR_JSON", "https://tfr.faa.gov/tfr2/list.json")  
 
 def fetch_tfr_list():
     r = requests.get(URL, timeout=30)
     r.raise_for_status()
-    return r.json()  # payload has TFR entries with geometry or links
+    return r.json()  
 
 def upsert_tfrs():
     data = fetch_tfr_list()
     count = 0
     with engine.begin() as conn:
         for t in data.get("tfrs", []):
-            gj = t.get("geometry") or t.get("geojson")  # vary by feed structure
+            gj = t.get("geometry") or t.get("geojson") 
             if not gj: continue
             payload = json.dumps(gj)
             conn.execute(text(
@@ -33,7 +33,6 @@ def upsert_tfrs():
     return count
 
 def point_in_active_tfr(lat, lon, iso_when) -> bool:
-    # quick helper for rules; can be moved to SQL later
     with engine.begin() as conn:
         rows = conn.execute(text(
             "SELECT geometry_geojson, eff_start, eff_end FROM tfr "

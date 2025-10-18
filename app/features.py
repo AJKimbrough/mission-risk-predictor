@@ -7,7 +7,6 @@ from .db import fetch_df
 
 
 def load_features_for_window(lat: float, lon: float, start: str, end: str) -> pd.DataFrame:
-    # Minimal stub: try to pull from features table; may be empty initially
     sql = (
         "SELECT * FROM features WHERE lat=:lat AND lon=:lon "
         "AND valid_time BETWEEN :start AND :end ORDER BY valid_time"

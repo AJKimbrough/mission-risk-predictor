@@ -28,7 +28,6 @@ def _ml_score(feats: pd.DataFrame) -> float:
         return None
     if feats is None or feats.empty:
         return None
-# Add time encodings to match training if needed
 
     df = feats.copy()
     t = pd.to_datetime(df["valid_time"], utc=True, errors="coerce")
@@ -38,7 +37,7 @@ def _ml_score(feats: pd.DataFrame) -> float:
     df["hour_cos"] = np.cos(2*np.pi*df["hour"]/24)
     df["month_sin"] = np.sin(2*np.pi*df["month"]/12)
     df["month_cos"] = np.cos(2*np.pi*df["month"]/12)
-    # NA flags & fills
+    #NA flags, fills
     for col in ["vis_sm","ceiling_ft","wind_kts","gust_kts","xwind_kts","pop_pct"]:
         df[f"{col}_na"] = df[col].isna().astype(int)
     df["vis_sm"] = df["vis_sm"].fillna(10.0).clip(0, 20)
@@ -48,10 +47,10 @@ def _ml_score(feats: pd.DataFrame) -> float:
     for c in ["convective_flag","icing_flag","tfr_active_flag","daylight_flag"]:
         if c in df.columns:
             df[c] = df[c].fillna(0).astype(int)
-    # Align columns
+    #Align columns
     X = df.reindex(columns=feature_cols, fill_value=0).to_numpy()
     probs = model.predict_proba(X)[:,1]
-    # Aggregate across hours: take max risk within the window
+    #Aggregate across hours/take max risk within the window
     return float(np.max(probs)) if len(probs) else None
 
 

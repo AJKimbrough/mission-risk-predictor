@@ -1,4 +1,3 @@
-# (Optional) Use the same api.Dockerfile for both to keep it simple.
 FROM python:3.11-slim
 WORKDIR /code
 COPY requirements.txt /code/

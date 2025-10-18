@@ -22,9 +22,12 @@ def fetch_grid(lat: float, lon: float) -> pd.DataFrame:
     df = parse_series("windSpeed")
     for k in ["windGust","probabilityOfPrecipitation","skyCover"]:
         df = df.merge(parse_series(k), on="valid_time", how="outer")
-    # convert units (m/s or km/h -> kts depends on office; safest: numeric value is in km/h)
-    # NWS grid uses "unitCode". When kts not available, roughly convert mph->kts if needed.
-    # Keep it simple: treat numbers as mph and convert to kts if unitCode contains "unit:km_h-1" or "unit:si"
+
+    #Convert units "m/s" or "km/h" to kts depending on office. 
+    #Safest: numeric value is km/h
+    #NWS grid uses "unitCode". When kts not available. Convert mph to kts when needed.
+    #Numbers are mph. Convert to kts if unitCode contains "unit:km_h-1" or "unit:si"
+
     for k in ["windSpeed","windGust"]:
         if k in J and "unitCode" in J[k]:
             u = J[k]["unitCode"]

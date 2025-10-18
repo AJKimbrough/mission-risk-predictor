@@ -3,7 +3,7 @@ from typing import Tuple, List
 from sqlalchemy import text
 from app.db import engine
 
-# FAA Graphic TFRs JSON list (public). This endpoint may redirect; requests follows redirects.
+#FAA Graphic TFRs JSON 
 FAA_TFR_JSON = os.getenv("FAA_TFR_JSON", "https://tfr.faa.gov/tfr2/list.json")
 
 S = requests.Session()
@@ -22,17 +22,15 @@ def fetch_tfr_list() -> dict:
     return r.json()
 
 def _extract_geojson(t: dict) -> dict:
-    # Try common keys used by the FAA list payloads
     if "geometry" in t:
         return t["geometry"]
     if "geojson" in t:
         return t["geojson"]
-    # Some entries provide a link; skip for now (could fetch detail per-item later)
+    # Skip link entries 
     return None
 
 def upsert_tfrs() -> int:
     payload = fetch_tfr_list()
-    # Expect payload like {"tfrs": [ {...}, {...} ]}
     items = payload.get("tfrs") or payload.get("items") or []
     count = 0
     with engine.begin() as conn:

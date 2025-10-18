@@ -15,7 +15,6 @@ import pydeck as pdk
 
 from app.db import fetch_df
 
-# --- Branding & Layout ---
 st.set_page_config(page_title="Aetheris", page_icon="🛡️", layout="wide")
 st.title("Aetheris")
 st.caption("Go/No-Go decisions from FAA & NOAA data — fast, explainable, map-first.")
@@ -23,7 +22,7 @@ st.caption("Go/No-Go decisions from FAA & NOAA data — fast, explainable, map-f
 if "route_overlays" not in st.session_state:
     st.session_state["route_overlays"] = {}
 
-# ---------------- Inputs ----------------
+#Inputs 
 col1, col2, col3 = st.columns(3)
 lat = col1.number_input("Latitude", value=32.7767, format="%.6f")
 lon = col2.number_input("Longitude", value=-96.7970, format="%.6f")
@@ -48,14 +47,14 @@ st.markdown("#### Corridor (optional)")
 st.caption("Enter waypoints as `lat,lon; lat,lon; ...` to render a corridor polyline.")
 corridor_text = st.text_input("Waypoints", value="")
 
-# Map options
+#Map - options
 st.markdown("#### Map Options")
 mcol1, mcol2, mcol3 = st.columns(3)
 radius_km = mcol1.slider("Map radius (km)", 10, 300, 80)
 show_heat = mcol2.checkbox("Show Risk Heatmap", value=True)
 show_tfr = mcol3.checkbox("Show No-Fly (TFR) Polygons", value=True)
 
-# ---------------- Helpers ----------------
+#Helpers
 def parse_corridor(s: str) -> List[Tuple[float, float]]:
     pts = []
     for seg in s.split(";"):
@@ -110,7 +109,7 @@ def load_features_points(lat: float, lon: float, start_iso: str, end_iso: str, r
     df["risk_weight"] = df.apply(risk_row, axis=1)
     return df
 
-# ---------------- Local Models ----------------
+#Local Models
 def local_decide(lat, lon, start, end, runway):
     df = load_features_points(lat, lon, start.isoformat(), end.isoformat(), radius_km=80)
     if df.empty:
@@ -156,7 +155,7 @@ def local_route_evaluate(route_points, dep_time, ground_speed_kts, buffer_km, ho
         "segments": segs
     }
 
-# ---------------- Decision UI ----------------
+#Decision
 left, right = st.columns([1, 1])
 
 with left:
@@ -174,7 +173,6 @@ with left:
 with right:
     corridor_pts = parse_corridor(corridor_text)
 
-    # Always include base marker
     base_layers = [
         pdk.Layer(
             "ScatterplotLayer",
@@ -185,7 +183,7 @@ with right:
         )
     ]
 
-    # Corridor visualization
+    #Corridor visualization
     if corridor_pts:
         path = [[lon, lat] for lat, lon in corridor_pts]
         base_layers.append(
@@ -200,7 +198,7 @@ with right:
             )
         )
 
-    # Optional heatmap layer
+    #Heatmap layer
     if show_heat:
         fdf = load_features_points(lat, lon, start.isoformat(), end.isoformat(), radius_km)
         if not fdf.empty:
@@ -216,7 +214,6 @@ with right:
                 )
             )
 
-    # Add stored overlays (route segments)
     overlays = []
     if "route_overlays" in st.session_state:
         for route_layers in st.session_state["route_overlays"].values():
@@ -237,7 +234,7 @@ with right:
         use_container_width=True,
     )
 
-# ---------------- Routes UI ----------------
+#Routes
 st.markdown("### Routes")
 st.caption("Enter routes: each line is `lat,lon; lat,lon; ...`")
 routes_text = st.text_area("Route options", height=100, value="32.7767,-96.7970; 33.0,-97.0; 33.3,-97.2")
