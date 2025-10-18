@@ -1,16 +1,16 @@
-#Aetheris – Mission Go/No-Go Risk Intelligence Platform
-#Real-Time Aviation Decision Support Using FAA & NOAA Feeds
+# Aetheris – Mission Go/No-Go Risk Intelligence Platform
+# Real-Time Aviation Decision Support Using FAA & NOAA Feeds
 
 Aetheris is a geospatial risk-analysis platform that assists pilots, mission planners, and UAV operators with go/no-go decisions using live meteorological and regulatory data from FAA TFR feeds, AWC METAR/TAF, and NOAA forecast models.
 
-##This application provides:
+## This application provides:
  - Real-time route hazard visualization
  - Automated risk scoring (Green / Amber / Red)
  - Explainable hazard detection (visibility, icing, turbulence, weather, TFR conflicts)
  - Map-first UI powered by Streamlit & PyDeck
  - Data-driven insights for aviation safety & mission-critical operations
 
-##Key Features
+## Key Features
  - FAA + NOAA Integrated Data
     - Pulls METAR, TAF, and NextGen Forecast Model data
     - Incorporates FAA Temporary Flight Restrictions (TFRs)
@@ -34,14 +34,14 @@ Aetheris is a geospatial risk-analysis platform that assists pilots, mission pla
         - Amber (Caution)
         - Red (No-Go)
 
-##Example Use Cases
+## Example Use Cases
 Use Case	            Description
 Mission Planning	    Compare multiple route options and timing scenarios
 UAV Logistics	        Assess low-altitude risk when flying drones beyond visual line-of-sight
 Emergency Services	    Determine safest corridor for air ambulance or wildfire surveillance
 Pilot Decision-Making	Get data-backed confidence before takeoff
 
-##Tech Stack
+## Tech Stack
 Layer	                    Technology
 - Frontend	                Streamlit, PyDeck, Mapbox
 - Backend (Optional API)	FastAPI (can be local or external)
@@ -50,7 +50,7 @@ Layer	                    Technology
 - Geospatial	            Shapely, PyProj, GeoJSON parsing
 - Deployment	            Streamlit Cloud, Docker-ready
 
-##Installation & Setup
+## Installation & Setup
  - git clone https://github.com/AJKimbrough/mission-risk-predictor.git
  - cd mission-risk-predictor
  - python3 -m venv .venv
@@ -62,7 +62,7 @@ Ensure your database is located at: data/gonogo.sqlite
 You can seed sample data using:
 python scripts/seed_examples.py
 
-##Go/No-Go Decision Logic
+## Go/No-Go Decision Logic
 This platform uses a weighted scoring model:
  - Feature	Condition	Risk Weight
  - Visibility	< 3 statute miles	+0.5
@@ -73,7 +73,7 @@ This platform uses a weighted scoring model:
  - Convective Weather	True	+0.4
  - TFR Polygon Intersect	True	Instant No-Go
 
-##User Interface
+## User Interface
  - Inputs
     - Choose departure time & runway heading
     - Enter custom route as "lat,lon; lat,lon; ..."
@@ -88,22 +88,22 @@ This platform uses a weighted scoring model:
 Example Route Input
  - 32.7767,-96.7970; 33.00,-97.10; 33.35,-97.25
 
-##Roadmap - (Upcoming Enhancements)
+## Roadmap - (Upcoming Enhancements)
  - Integration with live FAA API keys
  - ML prediction model (Random Forest & Gradient Boosting)
  - 3D flight corridor visualization
  - Cloud deployment with PostgreSQL + Supabase
  - SMS/Email alert integration for TFR events
 
-##License
+## License
 MIT License © 2025 — Amber K.
 
-##Author
+## Author
 AJ Kimbrough
 Software Engineer | Quantitative Systems | Aviation Intelligence
 ✈️ Passionate about building real-time safety systems powered by data.
 
-##Live Demo & GitHub
+## Live Demo & GitHub
  - Demo: https://aetheris.streamlit.app
  - Repo: https://github.com/AJKimbrough/mission-risk-predictor
 
