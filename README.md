@@ -1,5 +1,5 @@
 # Aetheris – Mission Go/No-Go Risk Intelligence Platform
-# Real-Time Aviation Decision Support Using FAA & NOAA Feeds
+## Real-Time Aviation Decision Support Using FAA & NOAA Feeds
 
 Aetheris is a geospatial risk-analysis platform that assists pilots, mission planners, and UAV operators with go/no-go decisions using live meteorological and regulatory data from FAA TFR feeds, AWC METAR/TAF, and NOAA forecast models.
 
